@@ -1,10 +1,12 @@
 [Unit]
 Description=Scale volume steps of miniDSP devices
+# Infinite tries to restart the service
+StartLimitIntervalSec=0
 
 [Service]
 ExecStart=/usr/local/bin/minidsp-volume-steps
 Restart=always
-RestartSec=1s
+RestartSec=5s
 
 [Install]
 WantedBy=multi-user.target
