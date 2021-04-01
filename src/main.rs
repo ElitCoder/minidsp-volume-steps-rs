@@ -2,8 +2,13 @@ use num::clamp;
 use regex::Regex;
 use std::{process::Command, thread, time};
 
+// Path to control software
 const MINIDSP_BINARY: &str = "minidsp";
+
+// Factor to scale gain differences with
 const GAIN_SCALE: f64 = 6.0;
+
+// Time to sleep between calls
 const SLEEP_TIME_MS: u64 = 50;
 
 // Gain values for miniDSP 2x4 HD
@@ -20,21 +25,21 @@ fn get_gain() -> f64 {
     // Fetch gain through regex
     let gain_regex =
         Regex::new(r"Gain\((?P<gain>-*\d*\.*\d*)\)").expect("Failed to create regex for gain");
-    let captured_gain = gain_regex
+    let capture_groups = gain_regex
         .captures(&output_string)
         .expect("Failed to retrieve gain from regex");
-    let float_gain = &captured_gain["gain"]
+    let gain = &capture_groups["gain"]
         .parse::<f64>()
         .expect("Failed to convert gain to float");
-    *float_gain
+    *gain
 }
 
-fn apply_gain(gain: f64) {
-    println!("Setting new gain: {}", gain);
+fn apply_gain(gain: &str) {
+    println!("Setting new gain: {} dB", gain);
     Command::new(MINIDSP_BINARY)
         .arg("gain")
         .arg("--")
-        .arg(format!("{:.1}", gain))
+        .arg(gain)
         .output()
         .expect("Failed to update gain");
 }
@@ -50,9 +55,10 @@ fn update_gain(current: f64, new: f64) -> bool {
 
     if old_gain_string != new_gain_string {
         // Set new gain
-        apply_gain(scaled_gain);
+        apply_gain(&new_gain_string);
     }
 
+    // True = updated gain, false = no update
     old_gain_string != new_gain_string
 }
 
@@ -62,13 +68,16 @@ fn main() {
 
     loop {
         let new_gain = get_gain();
-        println!("Current gain: {}", new_gain);
+
+        if current_gain != new_gain {
+            println!("Current gain: {} dB", new_gain);
+        }
 
         // Only update the gain if we know what the last reference was
         match known {
             true => known = !update_gain(current_gain, new_gain),
             false => {
-                known = false;
+                known = true;
                 current_gain = new_gain;
             }
         };
