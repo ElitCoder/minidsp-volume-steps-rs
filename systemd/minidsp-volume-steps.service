@@ -1,0 +1,10 @@
+[Unit]
+Description=Scale volume steps of miniDSP devices
+
+[Service]
+ExecStart=/usr/local/bin/minidsp-volume-steps
+Restart=always
+RestartSec=1s
+
+[Install]
+WantedBy=multi-user.target
