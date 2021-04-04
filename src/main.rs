@@ -1,3 +1,4 @@
+use lazy_static::lazy_static;
 use num::clamp;
 use regex::Regex;
 use std::{process::Command, thread, time};
@@ -15,6 +16,12 @@ const SLEEP_TIME_MS: u64 = 50;
 const MINIDSP_GAIN_MIN: f64 = -127.0;
 const MINIDSP_GAIN_MAX: f64 = 0.0;
 
+// Lazy static needed since Regex::new() is a function call
+lazy_static! {
+    static ref GAIN_REGEX: Regex =
+        Regex::new(r"Gain\((?P<gain>-*\d*\.*\d*)\)").expect("Failed to create regex for gain");
+}
+
 fn get_gain() -> f64 {
     let output = Command::new(MINIDSP_BINARY)
         .output()
@@ -22,16 +29,15 @@ fn get_gain() -> f64 {
     let output_string =
         String::from_utf8(output.stdout).expect("Failed to convert output to string");
 
-    // Fetch gain through regex
-    let gain_regex =
-        Regex::new(r"Gain\((?P<gain>-*\d*\.*\d*)\)").expect("Failed to create regex for gain");
-    let capture_groups = gain_regex
+    // Capture gain through regex
+    let gain_capture = GAIN_REGEX
         .captures(&output_string)
         .expect("Failed to retrieve gain from regex");
-    let gain = &capture_groups["gain"]
+
+    // Return the gain as a floating number
+    gain_capture["gain"]
         .parse::<f64>()
-        .expect("Failed to convert gain to float");
-    *gain
+        .expect("Failed to convert gain to float")
 }
 
 fn apply_gain(gain: &str) {
@@ -45,21 +51,21 @@ fn apply_gain(gain: &str) {
 }
 
 fn update_gain(current: f64, new: f64) -> bool {
-    let diff = new - current;
-    let scaled_gain = current + (diff * GAIN_SCALE);
-    let scaled_gain = clamp(scaled_gain, MINIDSP_GAIN_MIN, MINIDSP_GAIN_MAX);
+    let gain_diff = new - current;
+    let scaled_gain = current + (gain_diff * GAIN_SCALE);
+    let final_gain = clamp(scaled_gain, MINIDSP_GAIN_MIN, MINIDSP_GAIN_MAX);
 
     // Stringify to miniDSP format too see if the gain has changed
     let old_gain_string = format!("{:.1}", current);
-    let new_gain_string = format!("{:.1}", scaled_gain);
+    let new_gain_string = format!("{:.1}", final_gain);
+    let gain_changed = old_gain_string != new_gain_string;
 
-    if old_gain_string != new_gain_string {
-        // Set new gain
+    if gain_changed {
         apply_gain(&new_gain_string);
     }
 
-    // True = updated gain, false = no update
-    old_gain_string != new_gain_string
+    // Return true if the gain was changed, false otherwise
+    gain_changed
 }
 
 fn main() {
@@ -74,13 +80,14 @@ fn main() {
         }
 
         // Only update the gain if we know what the last reference was
-        match known {
-            true => known = !update_gain(current_gain, new_gain),
-            false => {
-                known = true;
-                current_gain = new_gain;
-            }
-        };
+        if known {
+            // Invalidate the known gain if we updated it, since it's not certain what miniDSP returns
+            // (clamping/external update etc.)
+            known = !update_gain(current_gain, new_gain);
+        } else {
+            known = true;
+            current_gain = new_gain;
+        }
 
         // Sleep until next call
         thread::sleep(time::Duration::from_millis(SLEEP_TIME_MS));
