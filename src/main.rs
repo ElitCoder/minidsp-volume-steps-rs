@@ -1,4 +1,4 @@
-use evdev_rs::Device;
+use evdev_rs;
 use lazy_static::lazy_static;
 use num::clamp;
 use regex::Regex;
@@ -55,7 +55,11 @@ fn apply_gain(gain: &str) {
         .expect("Failed to update gain");
 }
 
-fn gain_changed(current: f64, new: f64) -> bool {
+fn clamp_gain(gain: f64) -> f64 {
+    clamp(gain, MINIDSP_GAIN_MIN, MINIDSP_GAIN_MAX)
+}
+
+fn different_gain(current: f64, new: f64) -> bool {
     // Stringify to miniDSP format too see if the gain has changed
     let current_gain_string = format!("{:.1}", current);
     let new_gain_string = format!("{:.1}", new);
@@ -65,15 +69,14 @@ fn gain_changed(current: f64, new: f64) -> bool {
 fn update_gain(current: f64, new: f64) -> bool {
     let gain_diff = new - current;
     let scaled_gain = current + (gain_diff * GAIN_SCALE);
-    let final_gain = clamp(scaled_gain, MINIDSP_GAIN_MIN, MINIDSP_GAIN_MAX);
+    let final_gain = clamp_gain(scaled_gain);
 
-    let changed = gain_changed(current, final_gain);
-    if changed {
+    let gain_changed = different_gain(current, final_gain);
+    if gain_changed {
         apply_gain(&format!("{:.1}", final_gain));
     }
 
-    // Return true if the gain was changed, false otherwise
-    changed
+    gain_changed
 }
 
 fn poll() {
@@ -112,8 +115,8 @@ fn change_gain(increase: bool) {
         new_gain -= GAIN_OFFSET;
     }
     // Clamp to make sure the gain is in the correct range
-    let clamped_gain = clamp(new_gain, MINIDSP_GAIN_MIN, MINIDSP_GAIN_MAX);
-    if gain_changed(current_gain, clamped_gain) {
+    let clamped_gain = clamp_gain(new_gain);
+    if different_gain(current_gain, clamped_gain) {
         apply_gain(&format!("{:.1}", clamped_gain));
     }
 }
@@ -134,7 +137,7 @@ fn act_on_event(event: evdev_rs::InputEvent) {
 
 fn event(path: String) {
     let file = File::open(path).expect("Failed to open event path");
-    let device = Device::new_from_file(file).expect("Failed to create device");
+    let device = evdev_rs::Device::new_from_file(file).expect("Failed to create device");
 
     // Loop events
     loop {
